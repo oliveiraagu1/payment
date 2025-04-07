@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 	"github.com/oliveiraagu1/payment/go-geteway/internal/repository"
 	"github.com/oliveiraagu1/payment/go-geteway/internal/service"
 	"github.com/oliveiraagu1/payment/go-geteway/internal/web/server"
