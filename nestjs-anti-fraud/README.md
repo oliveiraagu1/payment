@@ -1,98 +1,145 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Gateway de Pagamento - Microserviço Anti-Fraude (NestJS)
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Este é o microsserviço de Anti-Fraude desenvolvido em NestJS, parte do projeto Gateway de Pagamento criado durante a [Imersão Full Stack & Full Cycle](https://imersao.fullcycle.com.br).
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Aviso Importante
 
-## Description
+Este projeto foi desenvolvido exclusivamente para fins didáticos como parte da Imersão Full Stack & Full Cycle.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Sobre o Projeto
 
-## Project setup
+O Gateway de Pagamento é um sistema distribuído composto por:
+- Frontend em Next.js
+- API Gateway em Go
+- Sistema de Antifraude em Nest.js (este repositório)
+- Apache Kafka para comunicação assíncrona
 
+## Arquitetura da aplicação
+[Visualize a arquitetura completa aqui](https://link.excalidraw.com/readonly/Nrz6WjyTrn7IY8ZkrZHy)
+
+## Pré-requisitos
+
+- [Docker](https://www.docker.com/get-started)
+  - Para Windows: [WSL2](https://docs.docker.com/desktop/windows/wsl/) é necessário
+- [Extensão REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) (opcional, para testes via api.http)
+
+## Importante!
+
+⚠️ **É necessário executar primeiro o serviço go-gateway** antes deste projeto, pois este microserviço utiliza a rede Docker criada pelo go-gateway.
+
+## Setup do Projeto
+
+1. Clone o repositório:
 ```bash
-$ npm install
+git clone https://github.com/devfullcycle/imersao22.git
+cd imersao22/nestjs-anti-fraud
 ```
 
-## Compile and run the project
+2. Verifique se o serviço go-gateway já está em execução
 
+3. Inicie os serviços com Docker Compose:
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+docker compose up -d
 ```
 
-## Run tests
-
+4. Execute as migrations do Prisma dentro do container:
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+docker compose exec nestjs bash
+npx prisma migrate dev
 ```
 
-## Deployment
+## Executando a aplicação
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+Você pode rodar a aplicação em dois modos diferentes dentro do container:
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
+### 1. API REST + Consumidor Kafka (padrão)
 ```bash
-$ npm install -g mau
-$ mau deploy
+docker compose exec nestjs bash
+npm run start:dev
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+### 2. Apenas o Consumidor Kafka
+```bash
+docker compose exec nestjs bash
+npm run start:dev -- --entryFile cmd/kafka.cmd
+```
 
-## Resources
+## Estrutura do Projeto
 
-Check out a few resources that may come in handy when working with NestJS:
+O projeto usa:
+- NestJS como framework
+- Prisma ORM para acesso ao banco de dados PostgreSQL
+- Integração com Apache Kafka para processamento assíncrono
+- TypeScript para tipagem estática
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+## Comunicação via Kafka
 
-## Support
+O serviço de Anti-Fraude se comunica com o API Gateway via Apache Kafka:
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+### Consumo de eventos
+- **Tópico**: `pending_transactions`
+- **Formato**: JSON com os dados completos da transação
 
-## Stay in touch
+### Produção de eventos
+- **Tópico**: `transactions_result`
+- **Formato**: JSON com o resultado da análise e score de risco
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+## Regras de Análise
 
-## License
+O sistema aplica regras para detectar possíveis fraudes, como:
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+1. **Valor da transação**:
+   - Transações acima de determinados limites recebem pontuação de risco mais alta
+
+2. **Frequência de transações**:
+   - Muitas transações em curto período aumentam o risco
+
+3. **Comportamento do cartão**:
+   - Uso de múltiplos cartões com padrões suspeitos
+
+## API Endpoints
+
+O projeto inclui um arquivo `api.http` que pode ser usado com a extensão REST Client do VS Code para testar os endpoints da API:
+
+1. Instale a extensão REST Client no VS Code
+2. Abra o arquivo `api.http`
+3. Clique em "Send Request" acima de cada requisição
+
+Os endpoints disponíveis estão documentados neste arquivo para fácil teste e referência.
+
+## Acesso ao Banco de Dados
+
+O PostgreSQL do serviço de Anti-Fraude está configurado para evitar conflitos com o banco do go-gateway.
+
+Para acessar o Prisma Studio (interface visual do banco de dados):
+
+```bash
+docker compose exec nestjs bash
+npx prisma studio
+```
+
+## Logs e Monitoramento
+
+Para visualizar os logs do serviço:
+
+```bash
+# Logs do serviço NestJS
+docker logs -f nestjs-anti-fraud-nestjs-1
+```
+
+## Desenvolvimento
+
+Para desenvolvimento, você pode executar comandos dentro do container:
+
+```bash
+# Acessar o shell do container
+docker compose exec nestjs bash
+
+# Exemplo de comandos disponíveis dentro do container
+npm run start:dev  # Iniciar em modo de desenvolvimento
+npm run start:dev -- --entryFile cmd/kafka.cmd  # Iniciar apenas o consumidor Kafka
+npx prisma studio  # Interface visual do banco de dados
+npx prisma migrate dev  # Executar migrations
+```
+
+Para modificar o código, edite os arquivos localmente - eles são montados como volume no container Docker, que reinicia automaticamente ao detectar mudanças.

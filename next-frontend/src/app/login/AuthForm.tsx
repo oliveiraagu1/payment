@@ -9,14 +9,15 @@ import { redirect } from "next/navigation";
 export async function loginAction(formData: FormData) {
   "use server";
   const apiKey = formData.get("apiKey");
-
-  const response = await fetch("http://localhost:8081/accounts", {
+console.log(apiKey);
+  const response = await fetch("http://app:8080/accounts", {
     headers: {
       "X-API-KEY": apiKey as string,
     },
   });
 
   if (!response.ok) {
+    console.error(await response.text());
     throw new Error("Invalid API Key");
   }
 

@@ -1,0 +1,361 @@
+# Overview
+O sistema de Gateway de Pagamentos necessita de uma integração com Apache Kafka para processamento assíncrono de transações de alto valor (> R$ 10.000). Esta integração permitirá que transações sejam analisadas por um serviço de antifraude externo, garantindo maior segurança nas operações.
+
+# Core Features
+
+## Produtor Kafka para Transações Pendentes
+- O que faz: Envia transações de alto valor para análise
+- Por que: Transações acima de R$ 10.000 precisam de análise adicional
+- Como: Utiliza kafka-go para produzir mensagens no tópico pending_transactions
+
+## Consumidor Kafka para Resultados
+- O que faz: Recebe e processa resultados da análise de fraude
+- Por que: Atualiza o status das transações e saldo das contas
+- Como: Consome mensagens do tópico transactions_result e atualiza o banco de dados
+
+# User Experience
+- Transações abaixo de R$ 10.000: Processamento síncrono imediato
+- Transações acima de R$ 10.000: 
+  - Status inicial: pending
+  - Envio para análise via Kafka
+  - Atualização assíncrona do status após análise
+
+# Technical Architecture
+
+## Estrutura de Arquivos
+```
+go-gateway/
+├── internal/
+│   ├── domain/
+│   │   ├── events/
+│   │   │   ├── pending_transaction.go    # Nova estrutura para evento
+│   │   │   └── transaction_result.go     # Nova estrutura para resultado
+│   │   └── repository.go                 # Interface existente do repositório
+│   ├── service/
+│   │   ├── kafka.go                      # Produtor e Consumidor Kafka
+│   │   └── invoice_service.go            # Serviço atualizado com Kafka
+│   └── web/
+├── cmd/
+│   └── app/
+│       └── main.go                       # Configuração do Kafka
+└── .env.example                          # Variáveis de ambiente do Kafka
+```
+
+## Implementações Detalhadas
+
+### 1. Estrutura de Eventos (internal/domain/events/pending_transaction.go)
+```go
+package events
+
+type PendingTransaction struct {
+    AccountID string  `json:"account_id"`
+    InvoiceID string  `json:"invoice_id"`
+    Amount    float64 `json:"amount"`
+}
+
+func NewPendingTransaction(accountID, invoiceID string, amount float64) *PendingTransaction {
+    return &PendingTransaction{
+        AccountID: accountID,
+        InvoiceID: invoiceID,
+        Amount:    amount,
+    }
+}
+```
+
+### 2. Estrutura de Resultado (internal/domain/events/transaction_result.go)
+```go
+package events
+
+import "github.com/devfullcycle/imersao22/go-gateway/internal/domain"
+
+type TransactionResult struct {
+    InvoiceID string `json:"invoice_id"`
+    Status    string `json:"status"`
+}
+
+func NewTransactionResult(invoiceID string, status string) *TransactionResult {
+    return &TransactionResult{
+        InvoiceID: invoiceID,
+        Status:    status,
+    }
+}
+
+func (t *TransactionResult) ToDomainStatus() domain.Status {
+    return domain.Status(t.Status)
+}
+```
+
+### 3. Serviço Kafka (internal/service/kafka.go)
+```go
+package service
+
+import (
+    "context"
+    "encoding/json"
+    "log/slog"
+    "github.com/segmentio/kafka-go"
+    "github.com/devfullcycle/imersao22/go-gateway/internal/domain/events"
+)
+
+// Configurações
+type KafkaConfig struct {
+    Broker string
+    Topic  string
+}
+
+type KafkaConsumerConfig struct {
+    Broker  string
+    Topic   string
+    GroupID string
+}
+
+// Interfaces
+type KafkaProducerInterface interface {
+    Publish(ctx context.Context, transaction *events.PendingTransaction) error
+    Close() error
+}
+
+type KafkaConsumerInterface interface {
+    Consume(ctx context.Context) error
+    Close() error
+}
+
+// Implementação do Produtor
+type KafkaProducer struct {
+    writer *kafka.Writer
+    topic  string
+}
+
+func NewKafkaProducer(config KafkaConfig) KafkaProducerInterface {
+    writer := kafka.NewWriter(kafka.WriterConfig{
+        Brokers: []string{config.Broker},
+        Topic:   config.Topic,
+    })
+
+    return &KafkaProducer{
+        writer: writer,
+        topic:  config.Topic,
+    }
+}
+
+func (k *KafkaProducer) Publish(ctx context.Context, transaction *events.PendingTransaction) error {
+    value, err := json.Marshal(transaction)
+    if err != nil {
+        return err
+    }
+
+    err = k.writer.WriteMessages(ctx, kafka.Message{
+        Value: value,
+    })
+
+    if err == nil {
+        slog.Info(
+            "message produced to kafka",
+            "topic", k.topic,
+            "invoice_id", transaction.InvoiceID,
+            "account_id", transaction.AccountID,
+            "amount", transaction.Amount,
+        )
+    }
+
+    return err
+}
+
+func (k *KafkaProducer) Close() error {
+    return k.writer.Close()
+}
+
+// Implementação do Consumidor
+type KafkaConsumer struct {
+    reader         *kafka.Reader
+    invoiceService *InvoiceService
+}
+
+func NewKafkaConsumer(config KafkaConsumerConfig, invoiceService *InvoiceService) KafkaConsumerInterface {
+    reader := kafka.NewReader(kafka.ReaderConfig{
+        Brokers: []string{config.Broker},
+        Topic:   config.Topic,
+        GroupID: config.GroupID,
+    })
+
+    return &KafkaConsumer{
+        reader:         reader,
+        invoiceService: invoiceService,
+    }
+}
+
+func (k *KafkaConsumer) Consume(ctx context.Context) error {
+    for {
+        msg, err := k.reader.ReadMessage(ctx)
+        if err != nil {
+            slog.Error("error reading kafka message", "error", err)
+            continue
+        }
+
+        var result events.TransactionResult
+        if err := json.Unmarshal(msg.Value, &result); err != nil {
+            slog.Error("error unmarshaling message", "error", err)
+            continue
+        }
+
+        slog.Info(
+            "message received from kafka",
+            "invoice_id", result.InvoiceID,
+            "status", result.Status,
+        )
+
+        status := result.ToDomainStatus()
+        if err := k.invoiceService.ProcessTransactionResult(result.InvoiceID, status); err != nil {
+            slog.Error(
+                "error processing transaction result", 
+                "error", err,
+                "invoice_id", result.InvoiceID,
+                "status", status,
+            )
+            continue
+        }
+
+        slog.Info(
+            "transaction processed successfully",
+            "invoice_id", result.InvoiceID,
+            "status", status,
+        )
+    }
+}
+
+func (k *KafkaConsumer) Close() error {
+    return k.reader.Close()
+}
+```
+
+### 4. Processamento de Transações (internal/service/invoice_service.go)
+```go
+func (s *InvoiceService) ProcessTransactionResult(invoiceID string, status domain.Status) error {
+    invoice, err := s.invoiceRepository.FindByID(invoiceID)
+    if err != nil {
+        return err
+    }
+
+    if err := invoice.UpdateStatus(status); err != nil {
+        return err
+    }
+
+    if err := s.invoiceRepository.UpdateStatus(invoice); err != nil {
+        return err
+    }
+
+    if status == domain.StatusApproved {
+        account, err := s.accountService.FindByID(invoice.AccountID)
+        if err != nil {
+            return err
+        }
+        
+        if _, err := s.accountService.UpdateBalance(account.APIKey, invoice.Amount); err != nil {
+            return err
+        }
+    }
+
+    return nil
+}
+```
+
+### 5. Configuração Principal (cmd/app/main.go)
+```go
+func main() {
+    // ... código existente ...
+
+    // Configuração do Kafka Producer
+    kafkaProducerConfig := service.KafkaConfig{
+        Broker: getEnv("KAFKA_BROKER", "localhost:9092"),
+        Topic:  getEnv("KAFKA_PENDING_TRANSACTIONS_TOPIC", "pending_transactions"),
+    }
+
+    // Configuração do Kafka Consumer
+    kafkaConsumerConfig := service.KafkaConsumerConfig{
+        Broker:  getEnv("KAFKA_BROKER", "localhost:9092"),
+        Topic:   getEnv("KAFKA_TRANSACTIONS_RESULT_TOPIC", "transactions_result"),
+        GroupID: getEnv("KAFKA_CONSUMER_GROUP_ID", "gateway-group"),
+    }
+
+    // Inicializa o produtor e consumidor Kafka
+    kafkaProducer := service.NewKafkaProducer(kafkaProducerConfig)
+    defer kafkaProducer.Close()
+
+    // ... inicialização dos services ...
+
+    // Inicializa o consumidor Kafka
+    kafkaConsumer := service.NewKafkaConsumer(kafkaConsumerConfig, invoiceService)
+    defer kafkaConsumer.Close()
+
+    // Inicia o consumidor em uma goroutine
+    go func() {
+        if err := kafkaConsumer.Consume(context.Background()); err != nil {
+            slog.Error("error consuming kafka messages", "error", err)
+        }
+    }()
+
+    // ... resto do código do main ...
+}
+```
+
+### 6. Variáveis de Ambiente (.env.example)
+```env
+# Kafka Producer
+KAFKA_BROKER=localhost:9092
+KAFKA_PENDING_TRANSACTIONS_TOPIC=pending_transactions
+
+# Kafka Consumer
+KAFKA_CONSUMER_GROUP_ID=gateway-group
+KAFKA_TRANSACTIONS_RESULT_TOPIC=transactions_result
+```
+
+# Development Roadmap
+
+## Fase 1: Estrutura Base
+- Criar estrutura de eventos (PendingTransaction, TransactionResult)
+- Implementar interfaces do Kafka
+- Configurar variáveis de ambiente
+
+## Fase 2: Produtor Kafka
+- Implementar KafkaProducer
+- Integrar com InvoiceService
+- Adicionar logs com slog
+- Implementar tratamento de erros
+
+## Fase 3: Consumidor Kafka
+- Implementar KafkaConsumer
+- Criar método ProcessTransactionResult
+- Integrar com sistema de saldo
+- Implementar logs e monitoramento
+
+## Fase 4: Testes e Monitoramento
+- Implementar testes unitários
+
+# Logical Dependency Chain
+1. Estrutura de domínio (já existente)
+2. Implementação do produtor
+3. Integração do produtor com InvoiceService
+4. Implementação do consumidor
+5. Processamento de resultados
+6. Atualização de status e saldo
+
+# Risks and Mitigations
+
+## Riscos Técnicos
+
+## Riscos Operacionais
+
+2. Mensagens duplicadas
+   - Mitigação: Verificação de status atual
+   - Idempotência no processamento
+
+# Appendix
+
+## Dependências
+Adicionar ao go.mod:
+```go
+require (
+    github.com/segmentio/kafka-go v0.4.47
+)
+```
+

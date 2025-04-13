@@ -5,6 +5,7 @@ import { InvoicesModule } from './invoices/invoices.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ConfigModule } from '@nestjs/config';
 import * as Joi from 'joi';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import * as Joi from 'joi';
         SUSPICIOUS_TIMEFRAME_HOURS: Joi.number(),
       }),
     }),
+    EventEmitterModule.forRoot(),
     InvoicesModule,
     PrismaModule,
   ],
